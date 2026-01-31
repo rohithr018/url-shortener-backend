@@ -6,6 +6,7 @@ import com.project.url_shortener.entity.Url;
 import com.project.url_shortener.exception.BadRequestException;
 import com.project.url_shortener.exception.GoneException;
 import com.project.url_shortener.exception.NotFoundException;
+import com.project.url_shortener.recycle.ExpiredCodeQueue;
 import com.project.url_shortener.repository.CounterRepository;
 import com.project.url_shortener.repository.UrlRepository;
 import com.project.url_shortener.util.Base62Encoder;
@@ -24,6 +25,7 @@ public class UrlService {
     private final CounterRepository counterRepository;
     private final Base62Encoder encoder;
     private final UrlCache urlCache;
+    private final ExpiredCodeQueue expiredCodeQueue;
 
     public Url shorten(String originalUrl , String alias){
 
@@ -61,16 +63,24 @@ public class UrlService {
         }
 
         //generate new short code
-        Counter counter=counterRepository.findById(1L)
-                .orElseGet(()->{
-                    Counter c = new Counter();
-                    c.setCounterValue(100000L);
-                    return counterRepository.save(c);
-                });
-        long next=counter.getCounterValue()+1;
-        counter.setCounterValue(next);
+        String shortCode=expiredCodeQueue.poll();
+        if(shortCode!=null){
+            if(urlRepository.findByShortCode(shortCode).isPresent()){
+                shortCode=null;
+            }
+        }
+        if(shortCode==null){
+            Counter counter=counterRepository.findById(1L)
+                    .orElseGet(()->{
+                        Counter c = new Counter();
+                        c.setCounterValue(100000L);
+                        return counterRepository.save(c);
+                    });
+            long next=counter.getCounterValue()+1;
+            counter.setCounterValue(next);
 
-        String shortCode=encoder.encode(next);
+            shortCode=encoder.encode(next);
+        }
 
         Url url=new Url();
         url.setOriginalUrl(originalUrl);
